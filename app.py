@@ -1,13 +1,26 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request, redirect, url_for, abort
 from flask_restx import Api
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_minify import minify
 import zoneforge.zf_api as zf_api
+import zoneforge.identity_manager as idm
 from zoneforge.modal_data import *
 import os
+from db import db
 
 # Flask App setup
 app = Flask(__name__, static_folder='static', static_url_path='')
+
+
+app.config['TOKEN_SECRET'] = 'token_secret'
+app.config['REFRESH_TOKEN_SECRET'] = 'refresh_token_secret'
+
+app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///zoneinfo.db"
+db.init_app(app)
+
+# This will only create tables that do not exist(get a error with docker)
+# with app.app_context():
+#     db.create_all()
 
 # Configuration with environment variables and defaults
 app.config['ZONE_FILE_FOLDER'] = os.environ.get('ZONE_FILE_FOLDER', './lib/examples')
@@ -19,7 +32,6 @@ app.wsgi_app = ProxyFix(
 )
 # API Setup
 api = Api(app, prefix= '/api', doc='/api',)
-
 
 @app.route("/", methods=['GET'])
 def home():
@@ -50,7 +62,50 @@ def zone(zone_name):
     record_types = record_types.get()
     return render_template('zone.html.j2', zone=zone, records=records, modal=ZONE_EDIT, modal_api='/api/zone', modal_default_values=current_zone_data, record_types=record_types)
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        login = idm.LoginResource()
+
+        return redirect(url_for('home'))
+    return render_template('login.html.j2')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        signup = idm.SignupResource()
+
+        return redirect(url_for('login'))
+    return render_template('signup.html.j2')
+
+@app.route('/dashboard', methods=['GET'])
+@app.route('/dashboard/<action>', methods=['GET'])
+def dashboard(action = None):
+    match action:
+        case 'groups':
+            groups = idm.GroupResource().compound_group_role()
+
+            return render_template('groups.html.j2', groups=groups)
+        case 'roles':
+            roles = idm.RoleResource().get()
+
+            return render_template('roles.html.j2', roles=roles)
+        case None | 'users':
+            users = idm.UserResource().compound_user_group()
+
+            return render_template('users.html.j2', users=users)
+        case _:
+            abort(404)
+
 api.add_resource(zf_api.StatusResource, '/status')
 api.add_resource(zf_api.ZoneResource, '/zone', '/zone/<string:zone_name>')
 api.add_resource(zf_api.RecordResource, '/zone/<string:zone_name>/record', '/zone/<string:zone_name>/record/<string:record_name>')
 api.add_resource(zf_api.RecordTypeResource, '/types/recordtype', '/types/recordtype/<string:record_type>')
+api.add_resource(idm.LoginResource, '/login')
+api.add_resource(idm.RefreshTokenResource, '/refresh')
+api.add_resource(idm.SignupResource, '/signup')
+api.add_resource(idm.UserResource, '/user', '/user/<string:user_id>')
+api.add_resource(idm.GroupResource, '/group', '/group/<string:group_id>')
+api.add_resource(idm.RoleResource, '/role', '/role/<string:role_id>')
+api.add_resource(idm.UserAssignGroupResource, '/group/<string:group_id>/user/<string:user_id>')
+api.add_resource(idm.RoleAssignGroupResource, '/group/<string:group_id>/role/<string:role_id>')

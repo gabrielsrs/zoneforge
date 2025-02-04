@@ -6,6 +6,9 @@ WORKDIR /app
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY zoneforge/ ./zoneforge/
+# db folder, and instance from create all command (temporary)
+COPY db/ ./db/
+COPY instance/ ./instance/
 COPY app.py requirements.txt  ./
 
 # create non-root user
